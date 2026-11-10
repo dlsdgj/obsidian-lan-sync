@@ -21,3 +21,4 @@
 - **External deletions** — A lightweight metadata reconciliation runs every minute to catch deletions made outside Obsidian.
 - **Mobile "still building" loop** — Startup vault events are no longer treated as user edits, so the 17k-file index is reused without re-hashing every file on each launch.
 - **Discovery behind WebView restrictions** — Cached endpoints are reachable through Obsidian's native network API even when `fetch` is blocked.
+- **Stable language detection** — The UI follows the Obsidian display language from `localStorage` with a system-locale fallback and a startup recalibration; no manual language option is exposed.

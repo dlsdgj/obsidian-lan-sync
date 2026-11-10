@@ -159,7 +159,7 @@ const I18N = {
 function detectLang() {
   let raw = '';
   try { raw = window.localStorage.getItem('language') || ''; } catch (e) { /* ignore */ }
-  if (!raw) { try { raw = (typeof moment !== 'undefined' && moment.locale) ? moment.locale() : ''; } catch (e) { /* ignore */ } }
+  // 不用 moment.locale()：它不跟随 Obsidian 界面语言，且在语言设置就绪前会误判成 en
   if (!raw) { try { raw = navigator.language || ''; } catch (e) { /* ignore */ } }
   return /^zh/i.test(String(raw)) ? 'zh' : 'en';
 }
@@ -2040,6 +2040,8 @@ class LanSyncPlugin extends Plugin {
         if (this.unloaded) return;
         this.boot().catch((e) => this.setStatus(tr('status.bootFailed', e && e.message ? e.message : e)));
       }, 0);
+      // Obsidian 的语言设置偶尔晚于 onload 写入 localStorage，稍后再校准一次
+      setTimeout(() => { if (!this.unloaded) LANG = detectLang(); }, 1500);
     }
   }
 
