@@ -1,4 +1,5 @@
 # LAN Sync / 局域网同步
+<img width="631" height="157" alt="26-11-10_20-48-53" src="https://github.com/user-attachments/assets/28a9e1c0-f3e6-490b-bac1-094a96cdafbd" />
 
 | English | 中文 |
 | --- | --- |
