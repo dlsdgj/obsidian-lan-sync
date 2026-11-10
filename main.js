@@ -274,12 +274,38 @@ async function readFileBytes(app, path) {
 
 // 同一个文件的写操作串行化：索引文件较大，并发 write 可能写坏 JSON
 const writeChains = new Map();
+
+// 切换显示语言会让 Obsidian 立即重启渲染进程。若此刻正在覆盖 2MB 的索引文件，
+// 磁盘上会留下半截 JSON，下次启动只能重建 1.7 万文件索引并把界面拖死。
+// 因此先写 .tmp 再原子替换，且允许从残留的 .tmp 读回。
 async function writeJsonFile(adapter, path, obj) {
+  const text = JSON.stringify(obj);
   const prev = writeChains.get(path) || Promise.resolve();
-  const job = prev.catch(() => {}).then(() => adapter.write(path, JSON.stringify(obj)));
+  const job = prev.catch(() => {}).then(async () => {
+    if (typeof adapter.rename === 'function') {
+      try {
+        await adapter.write(path + '.tmp', text);
+        try { await adapter.remove(path); } catch (e) { /* 目标不存在 */ }
+        await adapter.rename(path + '.tmp', path);
+        return;
+      } catch (e) { /* 不支持原子替换时退回直接写 */ }
+    }
+    await adapter.write(path, text);
+  });
   writeChains.set(path, job);
   try { await job; }
   finally { if (writeChains.get(path) === job) writeChains.delete(path); }
+}
+
+async function readJsonFile(adapter, path) {
+  // 主文件可能是上一次重启留下的半截 JSON，此时用原子写残留的 .tmp 兜底
+  for (const p of [path, path + '.tmp']) {
+    let text = '';
+    try { text = await adapter.read(p); } catch (e) { continue; }
+    if (!text) continue;
+    try { return JSON.parse(text); } catch (e) { /* 半写，继续找下一份 */ }
+  }
+  return null;
 }
 
 function isTextPath(path) {
@@ -725,8 +751,14 @@ class SyncServer {
         });
       });
       const ok = await new Promise((resolve) => {
-        srv.once('error', () => resolve(false));
-        srv.listen(port, '0.0.0.0', () => resolve(true));
+        let settled = false;
+        // 常驻 error handler：运行期端口/连接错误不能被当成未处理异常抛给渲染进程
+        const onError = (err) => {
+          if (!settled) { settled = true; resolve(false); return; }
+          console.error('[lan-sync] server error', err);
+        };
+        srv.on('error', onError);
+        srv.listen(port, '0.0.0.0', () => { if (!settled) { settled = true; resolve(true); } });
       });
       if (ok) {
         this.httpServer = srv;
@@ -742,14 +774,17 @@ class SyncServer {
 
   // index.json: {version,vault,rev,savedAt,log,files:{path:[hash,size,mtime]}}
   async loadIndex() {
+    const adapter = this.app.vault.adapter;
     try {
-      const obj = JSON.parse(await this.app.vault.adapter.read(this.indexPath()));
+      const obj = await readJsonFile(adapter, this.indexPath());
       if (obj && obj.version === INDEX_VERSION && obj.vault === this.plugin.vaultId && obj.files) {
+        let n = 0;
         for (const [p, v] of Object.entries(obj.files)) {
           if (shouldIgnore(p) || !Array.isArray(v) || v.length !== 3) continue;
           const meta = { hash: v[0], size: v[1], mtime: v[2] };
           this.files.set(p, meta);
           this.hashCache.set(p, meta);
+          if (++n % 1000 === 0) await sleep(0);  // 大索引分批让出主线程，避免启动白屏
         }
         this.rev = obj.rev || 0;
         this.savedRev = this.rev;
@@ -766,12 +801,14 @@ class SyncServer {
 
     // 一次性迁移旧版 hash-cache.json（[size,mtime,hash] 已足够构成索引）
     try {
-      const obj = JSON.parse(await this.app.vault.adapter.read(this.cachePath()));
+      const obj = await readJsonFile(adapter, this.cachePath());
+      let n = 0;
       for (const [p, v] of Object.entries(obj || {})) {
         if (shouldIgnore(p) || !Array.isArray(v) || v.length !== 3) continue;
         const meta = { size: v[0], mtime: v[1], hash: v[2] };
         this.files.set(p, meta);
         this.hashCache.set(p, meta);
+        if (++n % 1000 === 0) await sleep(0);
       }
       if (this.files.size) {
         this.saveIndex();
@@ -841,7 +878,10 @@ class SyncServer {
       let hash = null;
       try { hash = await this.hashFor(f.path, size, mtime); } catch (e) { continue; }
       next.set(f.path, { hash, size, mtime });
-      if (++n % 500 === 0) this.plugin.setStatus(tr('status.indexing', n, list.length));
+      if (++n % 500 === 0) {
+        this.plugin.setStatus(tr('status.indexing', n, list.length));
+        await sleep(0);
+      }
     }
     this.files = next;
     this.hashCache = new Map(next);
@@ -865,9 +905,10 @@ class SyncServer {
     this.scanning = true;
     try {
       const next = new Map();
-      let hashed = 0;
+      let hashed = 0, scanned = 0;
       for (const f of this.app.vault.getFiles()) {
         if (shouldIgnore(f.path)) continue;
+        if (++scanned % 500 === 0) await sleep(0);  // 每批让出主线程，启动时不卡界面
         const st = f.stat || {};
         const size = st.size || 0;
         const mtime = st.mtime || 0;
@@ -884,11 +925,17 @@ class SyncServer {
       if (next.size > 0) this.vaultSeen = true;
       const suspect = (this.files.size > 0 && !this.vaultSeen && next.size === 0)
         || (this.files.size > 20 && next.size < Math.floor(this.files.size * 0.9));
+      let applied = 0;
       for (const [path, meta] of next) {
         if (!sameMeta(this.files.get(path), meta)) this.setEntry(path, meta, true);
+        if (++applied % 500 === 0) await sleep(0);
       }
       if (!suspect) {
-        for (const path of [...this.files.keys()]) if (!next.has(path)) this.removeEntry(path);
+        let checked = 0;
+        for (const path of [...this.files.keys()]) {
+          if (!next.has(path)) this.removeEntry(path);
+          if (++checked % 500 === 0) await sleep(0);
+        }
       }
       if (!quiet && hashed) this.plugin.setStatus(tr('status.rehash', hashed));
       return { hashed, suspect };
@@ -970,7 +1017,9 @@ class SyncServer {
   async flushPending() {
     const paths = [...this.pending];
     this.pending.clear();
+    let n = 0;
     for (const path of paths) {
+      if (++n % 200 === 0) await sleep(0);
       const af = this.app.vault.getAbstractFileByPath(path);
       if (!af || af.children) continue;
       const st = af.stat || {};
@@ -1381,25 +1430,33 @@ class SyncClient {
 
   async loadState() {
     try {
-      const text = await this.app.vault.adapter.read(this.statePath());
-      const obj = JSON.parse(text);
+      const obj = await readJsonFile(this.app.vault.adapter, this.statePath());
+      if (!obj) return;
+      let n = 0;
       for (const [p, v] of Object.entries(obj.files || {})) {
         if (shouldIgnore(p) || !Array.isArray(v) || v.length !== 3) continue;
         this.state.set(p, v);
         this.localIndex.set(p, { hash: v[2], size: v[0], mtime: v[1] });
+        if (++n % 1000 === 0) await sleep(0);
       }
-      for (const [p, h] of Object.entries(obj.base || {})) this.base.set(p, h);
+      let b = 0;
+      for (const [p, h] of Object.entries(obj.base || {})) {
+        this.base.set(p, h);
+        if (++b % 1000 === 0) await sleep(0);
+      }
     } catch (e) { /* 首次运行 */ }
   }
 
   // 远端索引单独落盘：手机重启后从保存的 rev 继续增量，不必再拉 1.7 万行全量快照
   async loadRemoteIndex() {
     try {
-      const obj = JSON.parse(await this.app.vault.adapter.read(this.remotePath()));
+      const obj = await readJsonFile(this.app.vault.adapter, this.remotePath());
       if (!obj || !obj.files) return;
+      let n = 0;
       for (const [p, v] of Object.entries(obj.files)) {
         if (!shouldIgnore(p) && Array.isArray(v) && v.length === 3)
           this.remoteIndex.set(p, { hash: v[0], size: v[1], mtime: v[2] });
+        if (++n % 1000 === 0) await sleep(0);
       }
       this.remoteRev = obj.rev || 0;
       this.remoteVault = obj.vault || '';
@@ -2007,41 +2064,77 @@ const DEFAULT_SETTINGS = {
 
 class LanSyncPlugin extends Plugin {
   async onload() {
-    const data = (await this.loadData()) || {};
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
-    delete this.settings.language;  // 旧版残留字段，语言一律跟随 Obsidian
-    LANG = detectLang();
-    if (!this.settings.deviceId) this.settings.deviceId = uuid();
-    if (!this.settings.vaultId) this.settings.vaultId = uuid();
-    this.deviceId = this.settings.deviceId;
-    this.vaultId = this.settings.vaultId;
-    if (!this.settings.devices) this.settings.devices = {};
+    // 插件自身抛出的异常会中断 Obsidian 的启动流程（表现为卡住、白屏），这里全部兜住
+    try {
+      let data = null, loadFailed = false;
+      try { data = await this.loadData(); }
+      catch (e) { loadFailed = true; console.error('[lan-sync] loadData failed', e); }
+      const safe = (data && typeof data === 'object' && !Array.isArray(data)) ? data : {};
+      this.settings = Object.assign({}, DEFAULT_SETTINGS, safe);
+      const hadLanguage = Object.prototype.hasOwnProperty.call(this.settings, 'language');
+      delete this.settings.language;  // 旧版残留字段，语言一律跟随 Obsidian
+      LANG = detectLang();
+      if (!this.settings.deviceId) this.settings.deviceId = uuid();
+      if (!this.settings.vaultId) this.settings.vaultId = uuid();
+      this.deviceId = this.settings.deviceId;
+      this.vaultId = this.settings.vaultId;
+      if (!this.settings.devices) this.settings.devices = {};
 
-    this.statusEl = this.addStatusBarItem();
-    this.statusEl.addClass('lan-sync-status');
-    this.setStatus(tr('status.starting'));
+      this.statusEl = this.addStatusBarItem();
+      this.statusEl.addClass('lan-sync-status');
+      this.setStatus(tr('status.starting'));
 
-    this.addRibbonIcon('refresh-cw', tr('ribbon.sync'), () => this.manualSync());
-    this.addCommand({ id: 'sync-now', name: tr('cmd.syncNow'), callback: () => this.manualSync() });
-    this.addCommand({ id: 'reconnect', name: tr('cmd.reconnect'), callback: () => this.reconnect() });
-    this.addCommand({
-      id: 'pair-devices', name: tr('cmd.pairDevices'), callback: () => {
-        if (this.server && !this.server.pairModal) this.server.showNextPair();
-        else if (!this.server) new Notice(tr('notice.pairOnDesktop'));
-      },
-    });
-    this.addSettingTab(new LanSyncSettingTab(this.app, this));
+      this.addRibbonIcon('refresh-cw', tr('ribbon.sync'), () => this.manualSync());
+      this.addCommand({ id: 'sync-now', name: tr('cmd.syncNow'), callback: () => this.manualSync() });
+      this.addCommand({ id: 'reconnect', name: tr('cmd.reconnect'), callback: () => this.reconnect() });
+      this.addCommand({
+        id: 'pair-devices', name: tr('cmd.pairDevices'), callback: () => {
+          if (this.server && !this.server.pairModal) this.server.showNextPair();
+          else if (!this.server) new Notice(tr('notice.pairOnDesktop'));
+        },
+      });
+      this.addSettingTab(new LanSyncSettingTab(this.app, this));
 
-    if (this.settings.enabled) {
-      this.saveData(this.settings).catch(() => {});
-      // 关键：onload 必须立刻 resolve。读索引、扫库、网络发现全部放到后台，
-      // 否则 Obsidian 的加载看门狗会把插件判定为“加载时间过长”。
-      setTimeout(() => {
+      // 切换显示语言会立刻重启 Obsidian；若此刻配置读取失败，绝不能带着新的
+      // vaultId 去启动，否则 2MB 索引失效、1.7 万文件全量重建会把界面拖死。
+      if (loadFailed) {
+        this.setStatus(tr('status.bootFailed', 'data.json'));
+        return;
+      }
+      if (this.settings.enabled) {
+        // 只有配置真的变化才写盘，避免每次启动都与 Obsidian 抢 data.json
+        if (hadLanguage || !safe.deviceId || !safe.vaultId) this.saveData(this.settings).catch(() => {});
+        this.scheduleStartup();
+      }
+    } catch (e) {
+      console.error('[lan-sync] onload failed', e);
+    }
+  }
+
+  scheduleStartup() {
+    let scheduled = false;
+    const start = () => {
+      if (scheduled || this.unloaded) return;
+      scheduled = true;
+      // 语言设置到 workspace 就绪后才稳定：此时重取一次即可，无需任何手动选项
+      LANG = detectLang();
+      this.langTimer = window.setTimeout(() => { if (!this.unloaded) LANG = detectLang(); }, 1500);
+      this.register(() => { if (this.langTimer) clearTimeout(this.langTimer); });
+      // onload 立刻 resolve；读索引/扫库/监听端口都等界面首帧渲染完再开始
+      this.bootTimer = window.setTimeout(() => {
         if (this.unloaded) return;
         this.boot().catch((e) => this.setStatus(tr('status.bootFailed', e && e.message ? e.message : e)));
-      }, 0);
-      // Obsidian 的语言设置偶尔晚于 onload 写入 localStorage，稍后再校准一次
-      setTimeout(() => { if (!this.unloaded) LANG = detectLang(); }, 1500);
+      }, 1200);
+      this.register(() => { if (this.bootTimer) clearTimeout(this.bootTimer); });
+    };
+    const ws = this.app && this.app.workspace;
+    if (ws && typeof ws.onLayoutReady === 'function') {
+      ws.onLayoutReady(start);
+      // 个别版本 onLayoutReady 未触发时保底启动
+      this.fallbackTimer = window.setTimeout(start, 3000);
+      this.register(() => { if (this.fallbackTimer) clearTimeout(this.fallbackTimer); });
+    } else {
+      start();
     }
   }
 
@@ -2063,8 +2156,11 @@ class LanSyncPlugin extends Plugin {
 
   onunload() {
     this.unloaded = true;
-    if (this.server) { this.server.stop(); this.server = null; }
-    if (this.client) { this.client.stop(); this.client = null; }
+    // 卸载过程（尤其是语言切换引发的重启）不能被插件的清理逻辑打断
+    try { if (this.server) this.server.stop(); } catch (e) { console.error('[lan-sync] server stop failed', e); }
+    try { if (this.client) this.client.stop(); } catch (e) { console.error('[lan-sync] client stop failed', e); }
+    this.server = null;
+    this.client = null;
   }
 
   setStatus(text) {

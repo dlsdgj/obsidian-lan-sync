@@ -22,3 +22,5 @@
 - **Mobile "still building" loop** — Startup vault events are no longer treated as user edits, so the 17k-file index is reused without re-hashing every file on each launch.
 - **Discovery behind WebView restrictions** — Cached endpoints are reachable through Obsidian's native network API even when `fetch` is blocked.
 - **Stable language detection** — The UI follows the Obsidian display language from `localStorage` with a system-locale fallback and a startup recalibration; no manual language option is exposed.
+- **Language-switch restarts** — Startup is deferred until the workspace is ready, all heavy index/vault loops yield in batches, `onload()`/`onunload()` errors are contained, and the HTTP server keeps a permanent error handler; changing the display language no longer hangs or blanks Obsidian.
+- **Crash-safe index files** — `index.json`, `state.json` and `remote-index.json` are written through a temporary file plus atomic rename and can be recovered from the temp copy; a half-written index or an unreadable `data.json` no longer forces a full 17k-file rebuild.
