@@ -1,0 +1,13 @@
+# Runtime data lives inside the vault, never in the repo
+data.json
+index.json
+state.json
+remote-index.json
+hash-cache.json
+debug.log
+*.bak
+
+# Tooling / OS
+node_modules/
+.DS_Store
+Thumbs.db
