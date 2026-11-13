@@ -1,7 +1,7 @@
 {
   "id": "lan-sync",
   "name": "LAN Sync",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "minAppVersion": "1.4.0",
   "description": "Zero-config LAN sync for Obsidian: the desktop serves the vault, mobile devices discover it automatically, with no IP, port or key to type.",
   "author": "dlsdgj",

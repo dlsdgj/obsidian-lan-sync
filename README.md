@@ -1,8 +1,5 @@
 # LAN Sync / 局域网同步
 
-
-<img width="1747" height="1216" alt="20261111024650" src="https://github.com/user-attachments/assets/d72ad35f-1bef-4f2c-8875-f4a4b42a0c98" />
-
 | English | 中文 |
 | --- | --- |
 | Zero-configuration, LAN-only, two-way sync for Obsidian. Your desktop serves the vault; phones and tablets are pure clients. No account, no cloud, no relay, and nothing to type. | 零配置、仅在局域网内工作的 Obsidian 双向同步插件。电脑做服务端，手机/平板做纯客户端；不需要账号、云端或中转，也不需要填任何东西。 |
@@ -19,7 +16,7 @@
 | **Incremental by index** — `index.json` on desktop, `state.json` / `remote-index.json` on mobile store hashes, `rev` and a change log. Restarts resume incrementally instead of re-hashing the whole vault. | **索引化增量** — 电脑 `index.json`、手机 `state.json` / `remote-index.json` 保存哈希、`rev` 与变更日志；重启后继续增量，不会全库重算。 |
 | **Token authorization** — every data request carries `X-Lan-Sync-Token`. Unpaired devices get `401` and cannot read, overwrite or delete anything. Devices can be revoked instantly. | **令牌鉴权** — 所有数据请求带 `X-Lan-Sync-Token`；未授权设备返回 `401`，读不到索引、改不了也删不了文件；可随时移除设备使令牌立即失效。 |
 | **Any file type** — notes, canvases, bases, images, PDFs, audio, video and archives; no extension whitelist. Text files are written through the Vault API so open editors are not overwritten. | **任意文件类型** — 笔记、画布、Base、图片、PDF、音视频、压缩包均可同步，没有扩展名白名单；文本文件走 Vault API 写入，不覆盖打开中的编辑器。 |
-| **Conflict copies** — when both sides edit the same file, the local version is kept and the remote one is saved as `xxx.conflict-<device>-<timestamp>.md`. | **冲突副本** — 两端同时修改同一文件时保留本地版本，把远端内容另存为 `xxx.conflict-<设备>-<时间>.md`。 |
+| **Conflict handling** — when both sides edit the same file, the desktop merges them three-way; only genuinely overlapping lines become blue/orange callouts (desktop / this device) inside the note, with the older content kept in the plugin's `history/`. No `xxx.conflict-*.md` copies are created. | **冲突处理** — 两端同时修改同一文件时由电脑端做三方合并；只有真正重叠的片段才会在正文里插入蓝/橙两色 callout（电脑版/本机版），旧内容存进插件目录的 `history/`，不再生成 `xxx.conflict-*.md` 副本。 |
 | **Bilingual UI** — the interface follows the Obsidian display language (Chinese / English) automatically. No language setting exists. | **双语界面** — 界面自动跟随 Obsidian 显示语言（中文 / English），无需任何语言设置。 |
 
 ---
@@ -64,15 +61,16 @@
 | Synced | All notes: `.md`, `.canvas`, `.base`, `.excalidraw` | 所有笔记：`.md`、`.canvas`、`.base`、`.excalidraw` |
 | Synced | Any attachment: images, PDFs, audio, video, zip (no extension whitelist) | 任意附件：图片、PDF、音视频、zip 等二进制（不限制扩展名） |
 | Synced | Ordinary `.json` / `.js` / `.css` files inside the vault | 库里的普通 `.json` / `.js` / `.css` 等文件 |
-| Synced | `xxx.conflict-*.md` copies created by the plugin | 插件生成的 `xxx.conflict-*.md` 冲突副本 |
-| Excluded | Everything under `.obsidian/`: plugins, themes, `app.json`, `workspace.json`, `community-plugins.json`, hotkeys and layout | `.obsidian/` 下的一切：所有插件、主题、`app.json`、`workspace.json`、`community-plugins.json`、热键与布局 |
+| Synced | `.obsidian/plugins/<id>/` code, `manifest.json`, `styles.css` (except `lan-sync` itself and `data.json`) | `.obsidian/plugins/<id>/` 的代码、`manifest.json`、`styles.css`（不含 lan-sync 自身与 `data.json`） |
+| Synced | `.obsidian/themes/` and `.obsidian/snippets/` | `.obsidian/themes/` 与 `.obsidian/snippets/` |
+| Excluded | Plugin settings (`plugins/*/data.json`) and machine state: `workspace*.json`, `cache/`, `appearance.json`, `hotkeys.json`, `community-plugins.json` | 插件设置（`plugins/*/data.json`）与机器状态：`workspace*.json`、`cache/`、`appearance.json`、`hotkeys.json`、`community-plugins.json` |
 | Excluded | Plugin data: `data.json`, `index.json`, `state.json`, `remote-index.json`, `debug.log` | 插件自身数据：`data.json`、`index.json`、`state.json`、`remote-index.json`、`debug.log` |
 | Excluded | `.trash/` (trashed files are not pulled back) and `.git/` | `.trash/`（删除进回收站的文件不会被拉回来）与 `.git/` |
 | Excluded | Temp files starting with `~` or ending in `.tmp` / `.part`, and single files over 100 MB | `~` 开头的临时文件、`.tmp` / `.part`，以及单文件超过 100 MB |
 
-Extensions only affect how a file is written, not whether it syncs. A nested folder named `.obsidian` (not at the vault root) is still synced. Excluding `.obsidian/` is deliberate: syncing device IDs, tokens, layouts and plugin lists would corrupt the other side's configuration.
+Extensions only affect how a file is written, not whether it syncs. A nested folder named `.obsidian` (not at the vault root) is still synced. Plugin and theme files sync as whole packages and only move forward in version (`manifest.version`); changes need an Obsidian reload to take effect. Plugin `data.json` stays per-device on purpose: merging it two-way is how settings get corrupted.
 
-扩展名只决定写入方式，不是同步白名单；库根以外、子目录里同名的 `.obsidian` 文件夹仍会被同步。排除 `.obsidian/` 是刻意的：设备身份、令牌、布局与插件启用列表若互相同步，会污染另一端的配置。
+扩展名只决定写入方式，不是同步白名单；库根以外、子目录里同名的 `.obsidian` 文件夹仍会被同步。插件与主题整包同步，且只允许 `manifest.version` 升不降；改完需重载 Obsidian 才生效。插件的 `data.json` 刻意按设备保留：双向合并它正是配置被写坏的原因。
 
 ---
 
@@ -92,9 +90,9 @@ Extensions only affect how a file is written, not whether it syncs. A nested fol
 | English | 中文 |
 | --- | --- |
 | Both devices must be on the same LAN and the desktop Obsidian must stay open. There is no cloud relay or remote access. | 两端必须在同一局域网，且电脑端 Obsidian 要保持打开；没有云端中继，也不能远程访问。 |
-| No version history, no end-to-end encryption and no selective sync. This is a two-way mirror, not a backup. | 没有版本历史、端到端加密或选择性同步。这是双向镜像，不是备份方案。 |
+| No full version history (only conflict losers are kept in `history/`), no end-to-end encryption and no selective sync. This is a two-way mirror, not a backup. | 没有完整版本历史（只把冲突落败方留在 `history/`）、没有端到端加密或选择性同步。这是双向镜像，不是备份方案。 |
 | Single files larger than 100 MB are skipped silently. | 单文件超过 100 MB 会被静默跳过。 |
-| Plugins, themes and settings are not synced, so keep both sides on the same plugin version manually. | 插件、主题与设置不同步，两端插件版本需要手动保持一致。 |
+| Plugin code, themes and snippets sync, but plugin settings and Obsidian's own settings files do not; reload Obsidian after those files change. | 插件代码、主题与片段会同步，但插件设置和 Obsidian 自身的设置文件不同步；这些文件变化后需重载 Obsidian。 |
 | iOS is untested. Not an official Obsidian plugin. | iOS 未测试；非 Obsidian 官方插件。 |
 
 ---
