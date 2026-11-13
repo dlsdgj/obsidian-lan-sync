@@ -219,17 +219,6 @@ const I18N = {
   'settings.btnRemove': ['移除', 'Remove'],
 
   'settings.scope': ['同步范围', 'Sync scope'],
-  'scope.headYes': ['会同步', 'Synced'],
-  'scope.headNo': ['不同步', 'Excluded'],
-  'scope.yes1': ['所有笔记：.md、.canvas、.base、.excalidraw', 'All notes: .md, .canvas, .base, .excalidraw'],
-  'scope.yes2': ['任意附件：图片、PDF、音视频、zip 等二进制（不限制扩展名）', 'Any attachment: images, PDFs, audio, video, zip (no extension whitelist)'],
-  'scope.yes3': ['库里的普通 .json / .js / .css 等文件', 'Ordinary .json / .js / .css files inside the vault'],
-  'scope.yes4': ['.obsidian 里真正需要一致的部分：插件代码与样式、主题、CSS 片段', 'The parts of .obsidian that really should match: plugin code and styles, themes, CSS snippets'],
-  'scope.no1': ['.obsidian 的布局与机器状态：workspace*.json、cache、appearance.json、hotkeys.json、community-plugins.json', '.obsidian layout and machine state: workspace*.json, cache, appearance.json, hotkeys.json, community-plugins.json'],
-  'scope.no2': ['插件的 data.json（设置按设备保留）与插件自身目录 .obsidian/plugins/lan-sync/', 'Plugin data.json (settings stay per device) and .obsidian/plugins/lan-sync/'],
-  'scope.no3': ['.trash/（删除进回收站的文件不会被拉回来）、.git/', '.trash/ (trashed files are not pulled back) and .git/'],
-  'scope.no4': ['~ 开头的临时文件、.tmp / .part、单文件超过 {0}MB', 'Temp files starting with ~, .tmp / .part, and single files over {0}MB'],
-  'scope.note': ['两端都改过的文件不再生成 xxx.conflict-*.md：电脑端做三方合并，能合就合；只剩同一段冲突时，在正文里插入蓝/橙两色 callout（电脑版/本机版），点「保留这一版」即可，旧内容另存在插件的 history/ 里。插件与主题包整包同步，且只允许版本号升不降，改完需要重载 Obsidian 生效。', 'Files edited on both sides no longer produce xxx.conflict-*.md: the desktop merges them three-way; only overlapping edits become blue/orange callouts (desktop version / this device) inside the note, with the old content kept in history/. Plugins and themes sync as whole folders, versions only go up, and a reload is needed to apply changes.'],
 };
 
 function detectLang() {
