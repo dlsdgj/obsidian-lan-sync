@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2
+
+### Fixed
+
+- **Marketplace manifest description** — The plugin description no longer contains the word "Obsidian", which the community plugin validator rejects as redundant. No functional changes.
+
 ## 0.1.1
 
 ### Added
