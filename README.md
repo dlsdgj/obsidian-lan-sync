@@ -5,6 +5,13 @@
 | Zero-configuration, LAN-only, two-way sync for Obsidian. Your desktop serves the vault; phones and tablets are pure clients. No account, no cloud, no relay, and nothing to type. | 零配置、仅在局域网内工作的 Obsidian 双向同步插件。电脑做服务端，手机/平板做纯客户端；不需要账号、云端或中转，也不需要填任何东西。 |
 | Not affiliated with Obsidian. Tested on Windows (desktop) + Android (mobile); iOS is untested. | 与 Obsidian 官方无关。已在 Windows 桌面端 + Android 手机端验证，iOS 未测试。 |
 
+<p align="center">
+  <img src="docs/settings-desktop.png" width="58%" alt="LAN Sync settings on desktop">
+  &nbsp;&nbsp;
+  <img src="docs/settings-mobile.png" width="24%" alt="LAN Sync settings on mobile">
+</p>
+<p align="center"><sub>Settings on desktop and mobile · 电脑端与手机端的设置页</sub></p>
+
 ---
 
 ## Features / 功能
