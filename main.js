@@ -129,8 +129,22 @@ const I18N = {
   'conflict.localTitle': ['冲突 · 本机版本（{0}）', 'Conflict · this device ({0})'],
   'conflict.keepThis': ['保留这一版', 'Keep this version'],
   'conflict.removed': ['（这一版删除了这段）', '(this version removed this part)'],
+  'conflict.merge': ['手动合并…', 'Manual merge…'],
+  'conflict.mergeTitle': ['手动合并冲突', 'Manual conflict merge'],
+  'conflict.mergeDesc': ['编辑下方文本，保留你想要的内容，然后点「应用」。', 'Edit the text below to keep what you want, then click Apply.'],
+  'conflict.remoteSide': ['电脑版', 'Desktop'],
+  'conflict.localSide': ['本机版', 'This device'],
+  'conflict.merged': ['合并结果', 'Merged result'],
+  'conflict.apply': ['应用', 'Apply'],
+  'conflict.applyAll': ['全部应用', 'Apply all'],
+  'conflict.next': ['下一个', 'Next'],
+  'conflict.prev': ['上一个', 'Previous'],
+  'conflict.count': ['冲突 {0}/{1}', 'Conflict {0}/{1}'],
+  'conflict.keepRemote': ['保留电脑版', 'Keep desktop'],
+  'conflict.keepLocal': ['保留本机版', 'Keep this device'],
+  'conflict.combine': ['两端都保留', 'Keep both'],
   'notice.resolveDone': ['已保留所选版本', 'Kept the selected version'],
-  'notice.reloadNeeded': ['插件或主题已同步，重载 Obsidian 后生效', 'Plugins or themes synced; reload Obsidian to apply'],
+  'notice.mergeDone': ['已应用合并结果', 'Applied the merged result'],
   'notice.noConflict': ['当前笔记里没有冲突块', 'No conflict block in this note'],
   'cmd.acceptRemote': ['冲突：保留电脑版', 'Conflict: keep desktop version'],
   'cmd.acceptLocal': ['冲突：保留本机版', 'Conflict: keep this device version'],
@@ -168,6 +182,7 @@ const I18N = {
   'settings.ignoreReset': ['恢复默认', 'Restore defaults'],
   'status.disabled': ['同步已停用', 'Sync disabled'],
   'status.waitPeer': ['等待手机连接', 'Waiting for the phone'],
+  'status.noPeer': ['服务就绪 · 尚无配对设备', 'Server ready · no paired device'],
   'settings.tileFiles': ['个文件', 'files'],
   'settings.tileDevices': ['台设备', 'devices'],
   'settings.tileLast': ['最近同步', 'Last sync'],
@@ -216,6 +231,8 @@ const I18N = {
   'settings.allowedTitle': ['已允许的设备（{0}）', 'Allowed devices ({0})'],
   'settings.noDevices': ['还没有设备被允许。', 'No devices allowed yet.'],
   'settings.authorizedAt': ['IP {0} · 授权于 {1}', 'IP {0} · authorized {1}'],
+  'settings.deviceOnline': ['在线', 'online'],
+  'settings.deviceOffline': ['离线 · 最后活跃 {0}', 'offline · last seen {0}'],
   'settings.btnRemove': ['移除', 'Remove'],
 
   'settings.scope': ['同步范围', 'Sync scope'],
@@ -1431,7 +1448,10 @@ class SyncServer {
     if (this.bases.get(path) === hash) return hash;
     try {
       const adapter = this.app.vault.adapter;
-      if (!(await adapter.exists(this.blobPath(hash)))) await adapter.writeBinary(this.blobPath(hash), ab);
+      if (!(await adapter.exists(this.blobPath(hash)))) {
+        await ensureFolder(this.app, this.blobPath(hash));
+        await adapter.writeBinary(this.blobPath(hash), ab);
+      }
     } catch (e) { /* 存不下就不存，退化成 LWW */ }
     this.bases.set(path, hash);
     this.saveBases();
@@ -1794,8 +1814,14 @@ class SyncServer {
   authorized(req) {
     const t = (req.headers && req.headers['x-lan-sync-token']) || '';
     if (!t) return false;
-    for (const d of Object.values(this.plugin.settings.devices || {})) {
-      if (d && d.token && d.token === t) { this.plugin.peerSeenAt = Date.now(); return true; }
+    const devices = this.plugin.settings.devices || {};
+    for (const [id, d] of Object.entries(devices)) {
+      if (d && d.token && d.token === t) {
+        this.plugin.peerSeenAt = Date.now();
+        d.lastSeen = Date.now();
+        this.plugin.saveSoon();
+        return true;
+      }
     }
     return false;
   }
@@ -3118,6 +3144,23 @@ const CONFLICT_CSS = [
   '.cm-line.lan-sync-cf-local { background: rgba(255, 149, 0, 0.10); box-shadow: inset 2px 0 0 rgb(255, 149, 0); }',
   '.lan-sync-keep-row { margin-top: 6px; }',
   '.lan-sync-keep { font-size: var(--font-ui-smaller); }',
+  '.lan-sync-dev-online { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #2ea043; margin-left: 6px; vertical-align: middle; }',
+  // 手动合并 Modal
+  '.lan-sync-merge-modal { max-width: 700px; }',
+  '.lan-sync-merge-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }',
+  '.lan-sync-merge-count { font-size: var(--font-ui-small); color: var(--text-muted); }',
+  '.lan-sync-merge-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }',
+  '.lan-sync-merge-side { border-radius: 8px; padding: 8px 10px; }',
+  '.lan-sync-merge-side.remote { background: rgba(68, 138, 255, 0.08); border: 1px solid rgba(68, 138, 255, 0.25); }',
+  '.lan-sync-merge-side.local { background: rgba(255, 149, 0, 0.08); border: 1px solid rgba(255, 149, 0, 0.25); }',
+  '.lan-sync-merge-side h4 { margin: 0 0 6px; font-size: var(--font-ui-small); font-weight: 600; }',
+  '.lan-sync-merge-side pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: var(--font-ui-smaller); max-height: 180px; overflow-y: auto; }',
+  '.lan-sync-merge-result { margin-bottom: 12px; }',
+  '.lan-sync-merge-result h4 { margin: 0 0 6px; font-size: var(--font-ui-small); font-weight: 600; }',
+  '.lan-sync-merge-result textarea { width: 100%; min-height: 120px; font-family: var(--font-monospace); font-size: var(--font-ui-smaller); resize: vertical; }',
+  '.lan-sync-merge-actions { display: flex; gap: 8px; flex-wrap: wrap; }',
+  '.lan-sync-merge-actions button { white-space: nowrap; }',
+  '@media (max-width: 560px) { .lan-sync-merge-cols { grid-template-columns: 1fr; } }',
   // 状态点：绿=正常 黄=同步中 红=出错/断开 灰=未启用
   '.lan-sync-status { display: inline-flex; align-items: center; gap: 6px; }',
   '.lan-sync-dot { width: 8px; height: 8px; border-radius: 50%; background: #8b949e; display: inline-block; }',
@@ -3215,6 +3258,117 @@ const DEFAULT_SETTINGS = {
   ignorePatterns: null,  // 同步范围黑名单；null = 用 DEFAULT_IGNORE
 };
 
+class ConflictMergeModal extends Modal {
+  constructor(app, plugin, file) {
+    super(app);
+    this.plugin = plugin;
+    this.file = file;
+    this.conflicts = [];
+    this.idx = 0;
+    this.mergedTexts = [];
+    this.applied = [];
+  }
+
+  async onOpen() {
+    const text = await this.app.vault.read(this.file);
+    this.conflicts = findConflicts(text);
+    if (!this.conflicts.length) {
+      this.contentEl.createEl('p', { text: tr('notice.noConflict') });
+      return;
+    }
+    this.mergedTexts = this.conflicts.map((c) => {
+      const r = unquoteCallout(c.remote);
+      const l = unquoteCallout(c.local);
+      return r + '\n' + l;
+    });
+    this.applied = new Array(this.conflicts.length).fill(false);
+    this.render();
+  }
+
+  render() {
+    this.contentEl.empty();
+    this.titleEl.setText(tr('conflict.mergeTitle'));
+
+    if (!this.conflicts.length) {
+      this.contentEl.createEl('p', { text: tr('notice.noConflict') });
+      return;
+    }
+
+    const c = this.conflicts[this.idx];
+    const remoteText = unquoteCallout(c.remote);
+    const localText = unquoteCallout(c.local);
+
+    const nav = this.contentEl.createDiv({ cls: 'lan-sync-merge-nav' });
+    nav.createEl('span', { cls: 'lan-sync-merge-count', text: tr('conflict.count', this.idx + 1, this.conflicts.length) });
+    const navBtns = nav.createDiv();
+    if (this.idx > 0) {
+      navBtns.createEl('button', { text: tr('conflict.prev') }).onclick = () => { this.idx--; this.render(); };
+    }
+    if (this.idx < this.conflicts.length - 1) {
+      navBtns.createEl('button', { text: tr('conflict.next') }).onclick = () => { this.idx++; this.render(); };
+    }
+
+    const cols = this.contentEl.createDiv({ cls: 'lan-sync-merge-cols' });
+    const remoteSide = cols.createDiv({ cls: 'lan-sync-merge-side remote' });
+    remoteSide.createEl('h4', { text: tr('conflict.remoteSide') });
+    remoteSide.createEl('pre', { text: remoteText });
+    const localSide = cols.createDiv({ cls: 'lan-sync-merge-side local' });
+    localSide.createEl('h4', { text: tr('conflict.localSide') });
+    localSide.createEl('pre', { text: localText });
+
+    const resultBox = this.contentEl.createDiv({ cls: 'lan-sync-merge-result' });
+    resultBox.createEl('h4', { text: tr('conflict.merged') });
+    const ta = resultBox.createEl('textarea');
+    ta.value = this.mergedTexts[this.idx];
+    ta.oninput = () => { this.mergedTexts[this.idx] = ta.value; };
+
+    const actions = this.contentEl.createDiv({ cls: 'lan-sync-merge-actions' });
+    actions.createEl('button', { text: tr('conflict.keepRemote') }).onclick = () => {
+      ta.value = remoteText;
+      this.mergedTexts[this.idx] = remoteText;
+    };
+    actions.createEl('button', { text: tr('conflict.keepLocal') }).onclick = () => {
+      ta.value = localText;
+      this.mergedTexts[this.idx] = localText;
+    };
+    actions.createEl('button', { text: tr('conflict.combine') }).onclick = () => {
+      ta.value = remoteText + '\n' + localText;
+      this.mergedTexts[this.idx] = remoteText + '\n' + localText;
+    };
+    const btnApply = actions.createEl('button', { cls: 'mod-cta', text: tr('conflict.apply') });
+    btnApply.onclick = async () => {
+      await this.applyCurrent();
+      if (this.idx < this.conflicts.length - 1) { this.idx++; this.render(); }
+      else this.close();
+    };
+    if (this.conflicts.length > 1) {
+      actions.createEl('button', { cls: 'mod-cta', text: tr('conflict.applyAll') }).onclick = async () => {
+        for (let i = 0; i < this.conflicts.length; i++) {
+          if (!this.applied[i]) { this.idx = i; await this.applyCurrent(); }
+        }
+        this.close();
+      };
+    }
+  }
+
+  async applyCurrent() {
+    const merged = this.mergedTexts[this.idx];
+    const hit = this.conflicts[this.idx];
+    await this.app.vault.process(this.file, (text) => {
+      const list = findConflicts(text);
+      if (!list.length) return text;
+      const target = list.find((c) => c.start === hit.start && c.end === hit.end) || list[0];
+      let before = text.slice(0, target.start).replace(/\n+$/, '\n');
+      let after = text.slice(target.end).replace(/^\n+/, '\n');
+      if (!before.trim()) before = '';
+      if (!after.trim()) after = '';
+      return before + merged + after;
+    });
+    this.applied[this.idx] = true;
+    new Notice(tr('notice.mergeDone'));
+  }
+}
+
 class LanSyncPlugin extends Plugin {
   async onload() {
     // 插件自身抛出的异常会中断 Obsidian 的启动流程（表现为卡住、白屏），这里全部兜住
@@ -3271,6 +3425,17 @@ class LanSyncPlugin extends Plugin {
         id: 'conflict-keep-device',
         name: tr('cmd.acceptLocal'),
         checkCallback: (checking) => this.resolveInActive(checking, 'local'),
+      });
+      this.addCommand({
+        id: 'conflict-merge',
+        name: tr('conflict.merge'),
+        checkCallback: (checking) => {
+          const file = this.app.workspace.getActiveFile();
+          if (!file) return false;
+          if (checking) return true;
+          new ConflictMergeModal(this.app, this, file).open();
+          return true;
+        },
       });
 
       // 切换显示语言会立刻重启 Obsidian；若此刻配置读取失败，绝不能带着新的
@@ -3338,7 +3503,7 @@ class LanSyncPlugin extends Plugin {
     if (this.booting || this.unloaded) return;
     if (this.server || this.client) return;   // 已经启动过，开关重复打开时不要重入
     this.booting = true;
-    this.peerSeenAt = this.peerSeenAt || Date.now();
+    this.peerSeenAt = this.peerSeenAt || 0;
     try {
       if (Platform.isDesktopApp) {
         this.server = new SyncServer(this);
@@ -3398,10 +3563,11 @@ class LanSyncPlugin extends Plugin {
     let text = this.statusText;
     // 电脑端：有配对设备但长时间没有任何请求，说明对方关了同步/离线，别再显示“正常”绿点
     if (Platform.isDesktopApp && this.settings.enabled && phase === 'ready'
-      && Object.keys(this.settings.devices || {}).length
-      && this.peerSeenAt && Date.now() - this.peerSeenAt > 120000) {
+      && (!Object.keys(this.settings.devices || {}).length
+      || !this.peerSeenAt || Date.now() - this.peerSeenAt > 45000)) {
       phase = 'pending';
-      text = tr('status.waitPeer');
+      const hasDevices = Object.keys(this.settings.devices || {}).length > 0;
+      text = hasDevices ? tr('status.waitPeer') : tr('status.noPeer');
     }
     if (this.statusEl) {
       const el = this.statusEl;
@@ -3641,6 +3807,10 @@ class LanSyncPlugin extends Plugin {
       const keep = call.getAttribute('data-callout') === 'lan-sync-remote' ? 'remote' : 'local';
       const titleEl = call.querySelector('.callout-title-inner');
       const m = /(\d{2}-\d{2} \d{2}:\d{2})/.exec(titleEl ? titleEl.textContent || '' : '');
+      const row = document.createElement('div');
+      row.className = 'lan-sync-keep-row';
+      row.style.display = 'flex';
+      row.style.gap = '8px';
       const btn = document.createElement('button');
       btn.className = 'lan-sync-keep';
       btn.textContent = tr('conflict.keepThis');
@@ -3649,9 +3819,15 @@ class LanSyncPlugin extends Plugin {
         const ok = await this.resolveConflict(file, keep, m ? m[1] : '');
         new Notice(ok ? tr('notice.resolveDone') : tr('notice.noConflict'));
       };
-      const row = document.createElement('div');
-      row.className = 'lan-sync-keep-row';
+      const btnMerge = document.createElement('button');
+      btnMerge.className = 'lan-sync-keep';
+      btnMerge.textContent = tr('conflict.merge');
+      btnMerge.onclick = (ev) => {
+        if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+        new ConflictMergeModal(this.app, this, file).open();
+      };
       row.appendChild(btn);
+      row.appendChild(btnMerge);
       call.appendChild(row);
     });
   }
@@ -3831,10 +4007,15 @@ class LanSyncSettingTab extends PluginSettingTab {
       if (!ids.length) deviceBox.createEl('p', { text: tr('settings.noDevices'), cls: 'setting-item-description' });
       for (const id of ids) {
         const d = devices[id];
-        new Setting(deviceBox)
+        const isOnline = d.lastSeen && Date.now() - d.lastSeen < 45000;
+        const statusText = isOnline
+          ? tr('settings.deviceOnline')
+          : tr('settings.deviceOffline', d.lastSeen ? new Date(d.lastSeen).toLocaleString() : '—');
+        const s = new Setting(deviceBox)
           .setName(d.name || id.slice(0, 6))
-          .setDesc(tr('settings.authorizedAt', d.ip || '—', new Date(d.at || 0).toLocaleString()))
-          .addButton((b) => b.setButtonText(tr('settings.btnRemove')).setWarning().onClick(() => {
+          .setDesc(tr('settings.authorizedAt', d.ip || '—', new Date(d.at || 0).toLocaleString()) + ' · ' + statusText);
+        if (isOnline) s.nameEl.createEl('span', { cls: 'lan-sync-dev-online' });
+        s.addButton((b) => b.setButtonText(tr('settings.btnRemove')).setWarning().onClick(() => {
             srv.removeDevice(id);
             renderDevices();
             refresh();

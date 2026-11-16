@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.3
+
+### Added
+
+- **Manual conflict merge UI** — A new modal lets you resolve conflicts by editing a merged-result text field, with side-by-side previews of the desktop and device versions, quick buttons (keep desktop / keep device / keep both), and per-conflict navigation with "apply all" support. Accessible via command palette ("Manual merge") or the "Manual merge…" button on conflict callouts.
+
+### Fixed
+
+- **Three-way merge silently degrading to LWW** — The `rememberBase()` function failed to create the `base/` directory before writing blob files, so `writeBinary` silently failed and all merges fell back to last-write-wins. This caused device-side edits to be lost when the desktop had a newer mtime. Added `ensureFolder()` call before the write.
+- **Desktop showing green status dot with no device connected** — `peerSeenAt` was initialized to `Date.now()` on boot, so the offline threshold (120 s) never triggered immediately after startup. Now initialized to 0, so the dot correctly shows yellow ("waiting for phone") from the start. The offline threshold was also reduced from 120 s to 45 s.
+- **Device online/offline status in settings** — The authorized device list now shows a green dot and "online" for devices active within 45 s, or "offline · last seen {time}" otherwise. Each device's `lastSeen` timestamp is updated on every authorized request.
+
 ## 0.1.2
 
 ### Fixed
