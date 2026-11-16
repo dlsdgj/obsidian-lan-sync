@@ -3809,7 +3809,41 @@ class LanSyncPlugin extends Plugin {
       if (call.querySelector('.lan-sync-keep')) return;
       const keep = call.getAttribute('data-callout') === 'lan-sync-remote' ? 'remote' : 'local';
       const titleEl = call.querySelector('.callout-title-inner');
-      const m = /(\d{2}-\d{2} \d{2}:\d{2})/.exec(titleEl ? titleEl.textContent || '' : '');
+      const titleText = titleEl ? titleEl.textContent || '' : '';
+      const m = /(\d{2}-\d{2} \d{2}:\d{2})/.exec(titleText);
+      const stamp = m ? m[1] : '';
+      // 动态替换 callout 标题为当前语言
+      if (titleEl) {
+        const inferType = (name) => {
+          if (!name) return '';
+          if (/android/i.test(name)) return 'android';
+          if (/iphone|ipad|ios/i.test(name)) return 'ios';
+          if (/desktop|电脑/i.test(name)) return 'desktop';
+          if (/mobile|手机|移动/i.test(name)) return 'mobile';
+          return '';
+        };
+        if (keep === 'remote') {
+          titleEl.textContent = tr('conflict.remoteTitle', tr('device.desktop'), stamp);
+        } else {
+          const devMatch = /本机版本（(.+?)）|this device \((.+?)\)/.exec(titleText);
+          const rawName = devMatch ? (devMatch[1] || devMatch[2] || '').trim() : '';
+          const dtype = inferType(rawName) || 'mobile';
+          titleEl.textContent = tr('conflict.localTitle', tr('device.' + dtype));
+        }
+      }
+      // 动态替换 callout 内容中的"删除了这段"提示
+      const contentEl = call.querySelector('.callout-content');
+      if (contentEl) {
+        const removedZh = '（这一版删除了这段）';
+        const removedEn = '(this version removed this part)';
+        contentEl.querySelectorAll('p').forEach((p) => {
+          if (p.textContent && p.textContent.indexOf(removedZh) >= 0) {
+            p.textContent = tr('conflict.removed');
+          } else if (p.textContent && p.textContent.indexOf(removedEn) >= 0) {
+            p.textContent = tr('conflict.removed');
+          }
+        });
+      }
       const row = document.createElement('div');
       row.className = 'lan-sync-keep-row';
       row.style.display = 'flex';

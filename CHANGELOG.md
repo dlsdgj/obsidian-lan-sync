@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.5
+
+### Fixed
+
+- **Conflict callout titles not fully translated** — Remote callout titles now always use the dynamically translated "Desktop" instead of extracting the untranslated device name from the file. Local callout titles infer the device type from the stored name and translate accordingly.
+
 ## 0.1.4
 
 ### Fixed
