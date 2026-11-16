@@ -1,7 +1,7 @@
 {
   "id": "lan-sync",
   "name": "LAN Sync",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "minAppVersion": "1.4.0",
   "description": "Zero-config LAN sync for your vault: the desktop serves it, mobile devices discover it automatically, and there is no IP, port or key to type.",
   "author": "dlsdgj",

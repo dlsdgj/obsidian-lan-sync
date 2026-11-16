@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.4
+
+### Fixed
+
+- **Device list not refreshing in settings** — The authorized device list now re-renders every 5 seconds, so online/offline status updates automatically when a phone disconnects.
+- **Device name showing Chinese under English UI** — Device names are now dynamically translated based on `deviceType` instead of using the localized string captured at pairing time. Legacy devices without `deviceType` are inferred from the stored name.
+
 ## 0.1.3
 
 ### Added

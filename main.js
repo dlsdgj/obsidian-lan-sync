@@ -120,6 +120,7 @@ const I18N = {
 
   'device.android': ['Android 手机', 'Android phone'],
   'device.mobile': ['移动设备', 'Mobile device'],
+  'device.ios': ['iPhone/iPad', 'iPhone/iPad'],
   'device.desktop': ['电脑', 'Desktop'],
   'device.authorized': ['已授权设备', 'Authorized device'],
   'device.unknown': ['未知设备', 'Unknown device'],
@@ -1865,7 +1866,7 @@ class SyncServer {
     const token = uuid() + uuid();
     const s = this.plugin.settings;
     if (!s.devices) s.devices = {};
-    s.devices[id] = { name: r.name, ip: r.ip, at: Date.now(), token };
+    s.devices[id] = { name: r.name, deviceType: r.deviceType || '', ip: r.ip, at: Date.now(), token };
     this.plugin.saveData(s).catch(() => {});
     r.state = 'approved';
     r.token = token;
@@ -1946,6 +1947,7 @@ class SyncServer {
           this.pendingPairs.set(id, {
             deviceId: id,
             name: String(j.name || tr('device.unknown')).slice(0, 60),
+            deviceType: String(j.deviceType || '').slice(0, 16),
             ip, at: Date.now(), state: 'pending',
           });
         }
@@ -2427,10 +2429,11 @@ class SyncClient {
     if (!ping.auth) { s.pairToken = ''; return; }             // 兼容旧版电脑端
     if (s.pairToken && s.pairVault === ping.vault) return;    // 已配对，之后永久免操作
     const id = this.plugin.deviceId;
+    const deviceType = Platform.isIosApp ? 'ios' : (Platform.isAndroidApp ? 'android' : 'mobile');
     const kind = Platform.isIosApp ? 'iPhone/iPad' : (Platform.isAndroidApp ? tr('device.android') : tr('device.mobile'));
     const name = kind + ' · ' + id.slice(0, 6);
     await httpJson(base + API + '/pair/request', {
-      method: 'POST', body: JSON.stringify({ deviceId: id, name }),
+      method: 'POST', body: JSON.stringify({ deviceId: id, name, deviceType }),
     }, 8000);
     this.plugin.setStatus(tr('status.waitPair'), 'pending');
     dbg(this.app, '已发出配对请求 ' + name);
@@ -3882,7 +3885,7 @@ class LanSyncSettingTab extends PluginSettingTab {
     super(app, plugin);
     this.plugin = plugin;
     this.timer = null;
-    this.plugin.register(() => { if (this.timer) clearInterval(this.timer); });
+    this.plugin.register(() => { if (this.timer) clearInterval(this.timer); if (this.devTimer) clearInterval(this.devTimer); });
   }
 
   display() {
@@ -3959,6 +3962,7 @@ class LanSyncSettingTab extends PluginSettingTab {
     refresh();
     if (this.timer) clearInterval(this.timer);
     this.timer = window.setInterval(refresh, 1000);
+    this.devTimer = window.setInterval(() => renderDevices(), 5000);
 
     if (Platform.isMobileApp) {
       new Setting(containerEl)
@@ -3994,8 +3998,11 @@ class LanSyncSettingTab extends PluginSettingTab {
         deviceBox.createEl('p', { text: tr('settings.noPending'), cls: 'setting-item-description' });
       }
       for (const r of pending) {
+        const pendingName = r.deviceType
+          ? tr('device.' + r.deviceType) + ' · ' + r.deviceId.slice(0, 6)
+          : r.name;
         new Setting(deviceBox)
-          .setName(r.name)
+          .setName(pendingName)
           .setDesc('IP ' + r.ip + ' · ' + new Date(r.at).toLocaleString() + (r.state === 'rejected' ? tr('device.rejectedTag') : ''))
           .addButton((b) => b.setButtonText(tr('pair.allow')).setCta().onClick(() => { srv.approvePair(r.deviceId); renderDevices(); refresh(); }))
           .addButton((b) => b.setButtonText(tr('pair.reject')).onClick(() => { srv.rejectPair(r.deviceId); renderDevices(); refresh(); }));
@@ -4011,8 +4018,19 @@ class LanSyncSettingTab extends PluginSettingTab {
         const statusText = isOnline
           ? tr('settings.deviceOnline')
           : tr('settings.deviceOffline', d.lastSeen ? new Date(d.lastSeen).toLocaleString() : '—');
+        const inferType = (name) => {
+          if (!name) return '';
+          if (/android/i.test(name)) return 'android';
+          if (/iphone|ipad|ios/i.test(name)) return 'ios';
+          if (/mobile|手机|移动/i.test(name)) return 'mobile';
+          return '';
+        };
+        const dtype = d.deviceType || inferType(d.name);
+        const displayName = dtype
+          ? tr('device.' + dtype) + ' · ' + id.slice(0, 6)
+          : (d.name || id.slice(0, 6));
         const s = new Setting(deviceBox)
-          .setName(d.name || id.slice(0, 6))
+          .setName(displayName)
           .setDesc(tr('settings.authorizedAt', d.ip || '—', new Date(d.at || 0).toLocaleString()) + ' · ' + statusText);
         if (isOnline) s.nameEl.createEl('span', { cls: 'lan-sync-dev-online' });
         s.addButton((b) => b.setButtonText(tr('settings.btnRemove')).setWarning().onClick(() => {
