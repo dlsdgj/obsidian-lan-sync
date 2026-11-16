@@ -11,6 +11,7 @@
   <img src="docs/settings-mobile.png" width="24%" alt="LAN Sync settings on mobile">
 </p>
 <p align="center"><sub>Settings on desktop and mobile · 电脑端与手机端的设置页</sub></p>
+<img width="1175" height="812" alt="26-11-17_06-19-14" src="https://github.com/user-attachments/assets/14e95342-338f-470c-9820-3b3626e97bca" />
 
 ---
 
